@@ -9,7 +9,21 @@ from abc import abstractmethod
 from dqn import DeepQNetworkModel
 from memory_buffers import ExperienceReplayMemory
 from math import inf as infinity
+'''
+Changes for connect 4:
+    -* Human:
+        select_cell() --> choices visualization
+    -* Drunk:
+        select_cell() --> choices based on columns which still have a zero, not which cells have a zero
+    -* Novice:
+        select_cell() --> 
+        select2of3() --> winning options needs update
+    - Minimax:
+        needs quite a bit of changes. Do this later (not needed for today)
+    - DQN:
+        I think the output layer size needs to change (was 9, now should be 7)
 
+'''
 
 class Player:
     """
@@ -44,8 +58,8 @@ class Human(Player):
     This player type allow a human player to play the game
     """
     def select_cell(self, board, **kwargs):
-        cell = input("Select cell to fill:\n012\n345\n678\ncell number: ")
-        return cell
+        column = input("Select column to play (0-6): ")
+        return column
 
     def learn(self, **kwargs):
         pass
@@ -56,9 +70,15 @@ class Drunk(Player):
     Drunk player always selects a random valid move
     """
     def select_cell(self, board, **kwargs):
-        available_cells = np.where(board == 0)[0]
-        choice = random.choice(available_cells)
-        return choice
+        available_columns = []
+        for column in range(7):
+            if len(np.where(board[:, column] == 0)[0]) > 0:
+                available_columns.append(column)
+        return random.choice(available_columns)
+
+        # available_cells = np.where(board == 0)[0]
+        # choice = random.choice(available_cells)
+        # return choice
 
     def learn(self, **kwargs):
         pass
@@ -71,29 +91,106 @@ class Novice(Player):
     2) If not, and if the opponent has 2-in-a-row, capture the required cell to prevent him, from winning
     3) Else, select a random vacant cell
     """
-    def find_two_of_three(self, board, which_player_id):
-        cell = None
-        winning_options = [[0, 1, 2], [3, 4, 5], [6, 7, 8],
-                           [0, 3, 6], [1, 4, 7], [2, 5, 8],
-                           [0, 4, 8], [2, 4, 6]]
-        random.shuffle(winning_options)
-        for seq in winning_options:
-            s = board[seq[0]] + board[seq[1]] + board[seq[2]]
-            if s == 2 * which_player_id:
-                a = np.array([board[seq[0]], board[seq[1]], board[seq[2]]])
-                c = np.where(a == 0)[0][0]
-                cell = seq[c]
-                break
-        return cell
+    # def find_two_of_three(self, board, which_player_id):
+    #     for column in range(0, 7):
+    #         test_row = None
+    #         for row in range(5, -1, -1):             #see if there is a zero to be found in that column
+    #             if board[row, column] == 0:
+    #                 test_row = row
+    #                 break
+    #         if test_row:                        #if a zero was found, temporarily place a move, and check if it produces a win
+    #             board[row, column] = which_player_id
+    #             triple = self.check_for_triple(board, which_player_id)
+    #             board[row, column] = 0
+    #             if triple:  #get column which has the winning move
+    #                 print("triple: ", triple, " column: ", column)
+    #                 return column
+    #     return None
+
+
+    def check_for_triple(self, board, player_id):
+        # Check horizontal locations for win
+        for c in range(0, 4):
+            for r in range(0, 6):
+                if board[r, c] + board[r, c+1] + board[r, c+2] + board[r, c+3] == player_id*3:
+                    #print("horizontal found")
+                    if board[r,c] == 0:
+                        return c
+                    if board[r,c+1] == 0:
+                        return c+1
+                    if board[r,c+2] == 0:
+                        return c+2
+                    if board[r,c+3] == 0:
+                        return c+3
+
+        # Check vertical locations for win
+        for c in range(0, 7):
+            for r in range(0, 3):
+                if board[r, c] + board[r+1, c] + board[r+2, c] + board[r+3, c] == player_id*3:
+                    #print("Vertical found")
+                    if board[r, c] == 0:
+                        return c
+                    if board[r + 1, c] == 0:
+                        return c
+                    if board[r + 2, c] == 0:
+                        return c
+                    if board[r + 3, c] == 0:
+                        return c
+
+        # Check positively sloped diaganols
+        for c in range(0, 4):
+            for r in range(3, 6):
+                if board[r, c] + board[r-1, c+1] + board[r-2, c+2] + board[r-3, c+3] == player_id*3:
+                    #print("pos diag found")
+                    if board[r, c] == 0:
+                        return board[r, c]
+                    if board[r-1, c+1] == 0:
+                        return c+1
+                    if board[r-2, c + 2] == 0:
+                        return c+2
+                    if board[r-3, c + 3] == 0:
+                        return c+3
+
+        # Check negatively sloped diaganols
+        for c in range(0, 4):
+            for r in range(0, 3):
+                if board[r, c] + board[r+1, c+1] + board[r+2, c+2] + board[r+3, c+3] == player_id*3:
+                    #print("neg diag found")
+                    if board[r, c] == 0:
+                        return c
+                    if board[r+1, c + 1] == 0:
+                        return c+1
+                    if board[r+2, c + 2] == 0:
+                        return c+2
+                    if board[r+3, c + 3] == 0:
+                        return c+3
+
+        return None
 
     def select_cell(self, board, **kwargs):
-        cell = self.find_two_of_three(board,self.player_id)
-        if cell is None:
-            cell = self.find_two_of_three(board,-self.player_id)
-        if cell is None:
-            available_cells = np.where(board == 0)[0]
-            cell = random.choice(available_cells)
-        return cell
+        column = self.check_for_triple(board,self.player_id)        #find potential wins
+        #print("Potential win found?: ", column)
+        if column is None:
+            #print("no potential self wins found")
+            column = self.check_for_triple(board,-self.player_id)   #find potential opponent wins and block
+        if column is None:
+            #print("no potential opponent wins found")
+            #print("board: ", board)
+            available_columns = []
+            #print(len(board))
+            for column in range(0, 7):
+                # ("column: ", column)
+                # print("board[:, column] : ", board[:, column])print
+                if len(np.where(board[:, column] == 0)[0]) > 0:
+                    # print("added ", column)
+                    # print("Where: ", np.where(board[:, column] == 0)[0])
+                    # print("Where: ", np.where(board[:, column] == 0))
+                    available_columns.append(column)
+                    #print("available columns: ", available_columns)
+            #print("availabe columns: ", available_columns)
+            column = random.choice(available_columns)                  #if neither above found, return random available cell
+            #print("choice: ", column)
+        return column
 
     def learn(self, **kwargs):
         pass
@@ -242,7 +339,8 @@ class QPlayer(Player):
         :param maximize_entropy: boolean, should the network try to maximize entropy over direct future rewards
         :param var_scope_name: the variable scope to use for the player
         """
-        layers_size = [item for sublist in [[9],hidden_layers_size,[9]] for item in sublist]
+        # layers_size = [item for sublist in [[9],hidden_layers_size,[9]] for item in sublist]
+        layers_size = [item for sublist in [[42],hidden_layers_size,[7]] for item in sublist]
         self.session = session
         self.model = DeepQNetworkModel(session=self.session,
                                        layers_size=layers_size,
@@ -258,7 +356,9 @@ class QPlayer(Player):
         super(QPlayer, self).__init__()
 
     def select_cell(self, board, **kwargs):
-        return self.model.act(board, epsilon=kwargs['epsilon'])
+        # print("board: ", board)
+        # print("board.flatten(): ", board.flatten())
+        return self.model.act(board.reshape(-1), epsilon=kwargs['epsilon'])
 
     def learn(self, **kwargs):
         return self.model.learn(learning_rate=kwargs['learning_rate'])

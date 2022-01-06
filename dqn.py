@@ -53,6 +53,9 @@ class DeepQNetworkModel:
         self.tau = tau
         self.maximize_entropy = maximize_entropy
         self.memory = memory
+        # print("Layers_size: ", layers_size)
+        # print("Output size: ", self.output_size)
+        # print("Input size: ", layers_size[0])
         self.q_network = self.__create_q_network(input_size=layers_size[0], output_size=self.output_size,
                                                  hidden_layers_size=layers_size[1:-1], gamma=gamma,
                                                  maximize_entropy=maximize_entropy,
@@ -90,8 +93,13 @@ class DeepQNetworkModel:
         else:
             logging.debug('Starting learning procedure...')
             batch = self.memory.sample(current_batch_size)
+            # print("batch: ", batch)
+            # print("batch.reshape(-1): ", batch.reshape(-1), " ", batch.reshape(-1).shape)
+            #print("self.target_q_network.states: ", self.target_q_network.states)
+            #print("self.__fetch_from_batch(batch, 'next_state'): ", self.__fetch_from_batch(batch, 'next_state'))
             qt = self.session.run(self.target_q_network.output,
                                   feed_dict={self.target_q_network.states: self.__fetch_from_batch(batch, 'next_state')})
+            #print(self.__fetch_from_batch(batch, 'is_terminal'))
             terminals = self.__fetch_from_batch(batch, 'is_terminal')
             for i in range(terminals.size):
                 if terminals[i]:
@@ -150,10 +158,17 @@ class DeepQNetworkModel:
                             'next_state': next_state, 'is_terminal': is_terminal_state})
 
     def __fetch_from_batch(self, batch, key, enum=False):
-        if enum:
-            return np.array(list(enumerate(map(lambda x: x[key], batch))))
+        # print("batch: ", batch)
+        if key == 'next_state' or key == 'state':
+            if enum:
+                return np.array(list(enumerate(map(lambda x: x[key].reshape(-1), batch))))
+            else:
+                return np.array(list(map(lambda x: x[key].reshape(-1), batch)))
         else:
-            return np.array(list(map(lambda x: x[key], batch)))
+            if enum:
+                return np.array(list(enumerate(map(lambda x: x[key], batch))))
+            else:
+                return np.array(list(map(lambda x: x[key], batch)))
 
 
 class QNetwork:
