@@ -24,7 +24,7 @@ class Game:
                  winning_reward=1,
                  losing_reward=-1,
                  tie_reward=0,
-                 invalid_move_reward=-10):
+                 invalid_move_reward=-1):
         self.player1 = player1
         self.player2 = player2
         self.player1.name = p1_name

@@ -1,0 +1,56 @@
+
+Note:
+    I think training on self-play for too long with low epsilon caused the model to overfit,
+    which is why it's performance is so bad.
+
+    Another possibility is that your model isn't overfitting, but rather experiencing catastophic forgetting.
+    You did the training in phases, at each phase you increased the epsilon, which may cause the network to adapt too extremely,
+    resulting in the forgetting
+
+To do:
+-* add a tie-checking block in game_status
+-* confirm/test that each player gets to go first an equal number of times
+-* face_offqnetworks should be merged with faceoffdrunk
+-* add an option to reload previous models when training
+-* test the play against human function
+-* do some testing to make sure the correct outcomes are being recorded
+    (model should improve as it is trained iteratively)
+-* add minimax
+    -* verify minimax by playing against it
+    -* try from scratch
+    -* try from more mature model
+    -* make it possible for minimax to play as main character in face off (to get a baseline of best performance)
+-* see if drunk or novice is better for training
+    -* run drunk for 100k - took 2:50
+    -* run novice for 100k - took 2:34
+    -* do face offs
+    result:drunk is better for initial training because it is closer to the skill level.
+            However, you could expect novice to be better for later training for the same reason.
+-* build connect 4
+    -* initial draft
+    -* run drunk vs drunk face off
+    -* novice face off
+    -* run q player training
+        - you are attempting to adapt dqn to size 42, this will need to be changed to a convnet eventually
+        lines changed: game123, players327
+-* train an agent for connect 4 on drunk player
+    -* train same agent on novice player
+
+-* submit agent, see how it ranks
+-* add self play
+-* research hyperparameter tuning for rl
+    --> I think it's pretty much the same as supervised learning,
+    just with the added hyperparameter of opponent selection frequency
+    - Maybe I should increase window size, 8 is on the low end
+-* Try training without restarting the process. If this 2hr batch goes well, do again overnight for 12 hours
+- Do big 16hr training with decreasing eps to .1, if good results, do not erase the saved 30 models, and continue training til plateau
+- idk if the opponent should be making exploratory moves...
+If this still isn't producing top 25 then:
+- add convolution to current NN
+    - will need to convert processing to GPU for this
+- train with gpu on google colab
+- potentially incorporate monte carlo search
+    --> probably don't do this, its different from DQN.
+        Rather, just train an algorithm which uses mcts to place high in the competition
+- post online
+

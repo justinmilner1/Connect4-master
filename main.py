@@ -13,8 +13,8 @@ import os
 from random import randrange
 
 # Default Q-Player settings
-layers_size = [100, 160, 160, 100]
-batch_size = 150
+layers_size = [128, 128, 128, 128, 128]
+batch_size = 128
 batches_to_q_target_switch = 1000
 gamma = 0.95
 tau = 1
@@ -74,7 +74,7 @@ def train_selfplay(p1_name, p2_name, p1_max_ent, p2_max_ent, num_of_games=1e6, s
     p2.name = p2_name
 
     #Create/delete folders for selfplay models, save current model to each
-    models_window_size = 8
+    models_window_size = 30
     for num in range(0, models_window_size):
         path = './models/selfplay_models/' + str(num)
         if os.path.exists(path):
@@ -88,11 +88,17 @@ def train_selfplay(p1_name, p2_name, p1_max_ent, p2_max_ent, num_of_games=1e6, s
     costs = {p1.name: [], p2.name: []}  # this will store the costs, so we can plot them later
     rewards = {p1.name: [], p2.name: []}  # same, but for the players total rewards
 
+    epsilon_list = []
+    eps = 0.9
+    decay = 0.9999992
+    min_epsilon = 0.1
+
     # Start playing
     num_of_games = int(num_of_games)
     train_start_time = time()
-    save_step_frequency = 50000
+    save_step_frequency = 17500
     current_window = 0
+    dir = ''
     for g in range(1,num_of_games+1):
         #create player
         if g % save_step_frequency == 0:    #if have met save step frequency, select new agent to play against, save current one, throw out oldest
@@ -117,6 +123,9 @@ def train_selfplay(p1_name, p2_name, p1_max_ent, p2_max_ent, num_of_games=1e6, s
                 p2.restore(dir)
             #print("Game number: ", g, " Dir restored: ", dir)
 
+        # Calculate annealed epsilon
+        eps = .15#max(min_epsilon, eps * decay)
+
         game = Game(p1,p2, p1_name, p2_name) if g%2==0 else Game(p2,p1, p2_name, p1_name)
         last_phases = {p1.name: None, p2.name: None}  # will be used to store the last state a player was in
         while not game.game_status()['game_over']:
@@ -133,18 +142,11 @@ def train_selfplay(p1_name, p2_name, p1_max_ent, p2_max_ent, num_of_games=1e6, s
                 memory_element['game_over'] = False
                 game.active_player.add_to_memory(memory_element)
 
-            # Calculate annealed epsilon
-            if g <= num_of_games // 4:
-                max_eps = 0.6
-            elif g <= num_of_games // 2:
-                max_eps = 0.1
-            else:
-                max_eps = 0.05
-            min_eps = 0.01
-            eps = round(max(max_eps - round(g*(max_eps-min_eps)/num_of_games, 3), min_eps), 3)
-
             # Play and receive reward
-            action = int(game.active_player.select_cell(state, epsilon=eps))
+            if game.active_player.name == 'player_A':
+                action = int(game.active_player.select_cell(state, epsilon=eps))
+            else:
+                action = int(game.active_player.select_cell(state, epsilon=0))
             play_status = game.play(action)
             game_over = play_status['game_over']
             if play_status['invalid_move']:
@@ -190,8 +192,9 @@ def train_selfplay(p1_name, p2_name, p1_max_ent, p2_max_ent, num_of_games=1e6, s
         game.inactive_player.add_to_memory(memory_element)
 
         # Print statistics
-        period = 5000.0
+        period = 25000
         if g % int(period) == 0:
+            epsilon_list.append(eps)
             print('Game: {g} | Number of Trainings: {t1},{t2} | Epsilon: {e} | Average Rewards - {p1}: {r1}, {p2}: {r2}'
                   .format(g=g, p1=p1.name, r1=total_rewards[p1.name]/period,
                           p2=p2.name, r2=total_rewards[p2.name]/period,
@@ -199,6 +202,15 @@ def train_selfplay(p1_name, p2_name, p1_max_ent, p2_max_ent, num_of_games=1e6, s
             rewards[p1.name].append(total_rewards[p1.name]/period)
             rewards[p2.name].append(total_rewards[p2.name]/period)
             total_rewards = {p1.name: 0, p2.name: 0}
+
+        if g % 400000 == 0:
+            with graph1.as_default():
+                print("Doing face off cuz game #", g)
+                savepoint = '{dir}/{name}{datetime}.ckpt'.format(dir=savedir, name=p1.name, datetime=datetime.now().strftime("%m-%d-%H:%M"))
+                print("Saved in: ", savepoint)
+                p1.save(savepoint)
+                face_off('player_A', savepoint, 'Drunk', None, 1000)
+
 
     # Save trained model and shutdown Tensorflow sessions
     training_time = time() - train_start_time
@@ -213,30 +225,34 @@ def train_selfplay(p1_name, p2_name, p1_max_ent, p2_max_ent, num_of_games=1e6, s
     reward_colors = {p1.name: 'g', p2.name: 'r'}
     graphs = {p1.name: graph1, p2.name: graph2}
 
-    for pp in [p1]:
-        with graphs[pp.name].as_default():
-            #pp.save('{dir}/{name}.ckpt'.format(dir=savedir, name=pp.name))
-            dt = datetime.now().strftime("%m-%d-%H:%M")
-            savepoint = '{dir}/{name}{datetime}.ckpt'.format(dir=savedir, name=pp.name, datetime=dt)
-            print("Saved in: ", savepoint)
-            pp.save(savepoint)
-            pp.shutdown()
 
-        plt.scatter(range(len(costs[pp.name])), costs[pp.name], c=cost_colors[pp.name])
-        plt.title('Cost of player {}'.format(pp.name))
-        plt.show()
-        plt.scatter(range(len(rewards[pp.name])), rewards[pp.name], c=reward_colors[pp.name])
-        plt.title('Average rewards of player {}'.format(pp.name))
-        plt.show()
+    with graph1.as_default():
+        #pp.save('{dir}/{name}.ckpt'.format(dir=savedir, name=pp.name))
+        dt = datetime.now().strftime("%m-%d-%H:%M")
+        savepoint = '{dir}/{name}{datetime}.ckpt'.format(dir=savedir, name=p1.name, datetime=dt)
+        print("Saved in: ", savepoint)
+        p1.save(savepoint)
+        p1.shutdown()
 
-        plt.scatter(range(len(costs[pp.name])), costs[pp.name], c=cost_colors[pp.name])
-        plt.title('Cost of player {} [0,1]'.format(pp.name))
-        plt.ylim(0,1)
-        plt.show()
-        plt.scatter(range(len(rewards[pp.name])), rewards[pp.name], c=reward_colors[pp.name])
-        plt.title('Average rewards of player {} [-1,1]'.format(pp.name))
-        plt.ylim(-1,1)
-        plt.show()
+    plt.scatter(range(len(costs[p1.name])), costs[p1.name], c=cost_colors[p1.name])
+    plt.title('Cost of player {}'.format(p1.name))
+    plt.show()
+    plt.scatter(range(len(rewards[p1.name])), rewards[p1.name], c=reward_colors[p1.name])
+    plt.title('Average rewards of player {}'.format(p1.name))
+    plt.show()
+
+    plt.scatter(range(len(costs[p1.name])), costs[p1.name], c=cost_colors[p1.name])
+    plt.title('Cost of player {} [0,1]'.format(p1.name))
+    plt.ylim(0,1)
+    plt.show()
+    plt.scatter(range(len(rewards[p1.name])), rewards[p1.name], c=reward_colors[p1.name])
+    plt.title('Average rewards of player {} [-1,1]'.format(p1.name))
+    plt.ylim(-1,1)
+    plt.show()
+
+    plt.scatter(range(len(epsilon_list)), epsilon_list)
+    plt.title('Epsilon')
+    plt.show()
 
 def train(p1_name, p2_name, p1_max_ent, p2_max_ent, p2_type, num_of_games=1e6, savedir='./models/test_training', restore_path=None):
     """
@@ -295,6 +311,11 @@ def train(p1_name, p2_name, p1_max_ent, p2_max_ent, p2_type, num_of_games=1e6, s
     costs = {p1.name: [], p2.name: []}  # this will store the costs, so we can plot them later
     rewards = {p1.name: [], p2.name: []}  # same, but for the players total rewards
 
+    epsilon_list = []
+    eps = 0.9
+    decay = 0.9999
+    min_epsilon = 0.01
+
     # Start playing
     num_of_games = int(num_of_games)
     train_start_time = time()
@@ -316,22 +337,7 @@ def train(p1_name, p2_name, p1_max_ent, p2_max_ent, p2_type, num_of_games=1e6, s
                 game.active_player.add_to_memory(memory_element)
 
             # Calculate annealed epsilon
-            if g <= num_of_games // 6:
-                max_eps = 0.6
-            elif g <= num_of_games // 5:
-                max_eps = 0.49
-            elif g <= num_of_games // 4:
-                max_eps = 0.38
-            elif g <= num_of_games // 3:
-                max_eps = 0.27
-            elif g <= num_of_games // 2:
-                max_eps = 0.15
-            elif g <= num_of_games // 1:
-                max_eps = 0.9
-            else:
-                max_eps = 0.04
-            min_eps = 0.01
-            eps = round(max(max_eps - round(g*(max_eps-min_eps)/num_of_games, 3), min_eps), 3)
+            eps = max(min_epsilon, eps * decay)
 
             # Play and receive reward
             action = int(game.active_player.select_cell(state, epsilon=eps))
@@ -378,8 +384,9 @@ def train(p1_name, p2_name, p1_max_ent, p2_max_ent, p2_type, num_of_games=1e6, s
         game.inactive_player.add_to_memory(memory_element)
 
         # Print statistics
-        period = 100000.0
+        period = 10.0#5000
         if g % int(period) == 0:
+            epsilon_list.append(eps)
             print('Game: {g} | Number of Trainings: {t1},{t2} | Epsilon: {e} | Average Rewards - {p1}: {r1}, {p2}: {r2}'
                   .format(g=g, p1=p1.name, r1=total_rewards[p1.name]/period,
                           p2=p2.name, r2=total_rewards[p2.name]/period,
@@ -387,6 +394,7 @@ def train(p1_name, p2_name, p1_max_ent, p2_max_ent, p2_type, num_of_games=1e6, s
             rewards[p1.name].append(total_rewards[p1.name]/period)
             rewards[p2.name].append(total_rewards[p2.name]/period)
             total_rewards = {p1.name: 0, p2.name: 0}
+
 
     # Save trained model and shutdown Tensorflow sessions
     training_time = time() - train_start_time
@@ -424,6 +432,10 @@ def train(p1_name, p2_name, p1_max_ent, p2_max_ent, p2_type, num_of_games=1e6, s
         plt.scatter(range(len(rewards[pp.name])), rewards[pp.name], c=reward_colors[pp.name])
         plt.title('Average rewards of player {} [-1,1]'.format(pp.name))
         plt.ylim(-1,1)
+        plt.show()
+
+        plt.scatter(range(len(eps)), eps)
+        plt.title('Epsilon')
         plt.show()
 
 def play(model_path, is_max_entropy):
@@ -493,7 +505,6 @@ def face_off(p1_name, p1_path, p2_name, p2_path, games_to_play=100):
     invalid_move_count = {p1_name: 0, p2_name: 0}
 
     #initialize first player
-    print('Loading player 1')
     graph1 = tf.Graph()
     with graph1.as_default():
         p1 = None
@@ -525,7 +536,6 @@ def face_off(p1_name, p1_path, p2_name, p2_path, games_to_play=100):
         # #########
 
         #initialize second player
-        print('Loading player 2')
         graph2 = tf.Graph()
         with graph2.as_default():
             p2 = None
@@ -558,12 +568,12 @@ def face_off(p1_name, p1_path, p2_name, p2_path, games_to_play=100):
                     game = Game(p1, p2, p1_name, p2_name)
                 else:
                     game = Game(p2, p1, p2_name, p1_name)
+
                 # playing out individual game
                 while not game.game_status()['game_over']:
                     state = np.copy(game.board)
                     action = int(game.active_player.select_cell(state, epsilon=0.0))
                     game.play(action)
-                    #print(state)
                     if not game.game_status()['game_over']:
                         game.next_player()
                 winner = game.game_status()['winner']
@@ -572,9 +582,9 @@ def face_off(p1_name, p1_path, p2_name, p2_path, games_to_play=100):
                 #     p1=game.player1.name, p2=game.player2.name, w=winner_name
                 # ))
                 results[winner_name] += 1
+
                 if game.game_status()['invalid_move']:
                     invalid_move_count[game.active_player.name] += 1
-            print('----------')
 
     print(games_to_play, " games played.")
     print('Final results: {}'.format(results))
@@ -584,80 +594,65 @@ def face_off(p1_name, p1_path, p2_name, p2_path, games_to_play=100):
     print('Invalid move count: {}'.format(invalid_move_count))
     return results
 
-# winning_options = []
-#
-# for x in range(0, 7):       #column
-#     for y in range(0,3):    #row
-#         list = []
-#         for z in range(0,4): #3inarow
-#             list.append(x+((y+z)*7) )
-#         winning_options.append(list)
-#
-# print(winning_options)
+
+def eps_tester():
+    number_of_games = 2800000
+    min_epsilon = .1
+    eps = .9
+    decay = .9999992
+    eps_list = []
+
+    for x in range(number_of_games):
+        eps = max(min_epsilon, eps * decay)
+        if x % 100 == 0:
+            eps_list.append(eps)
+
+    plt.scatter(range(len(eps_list)), eps_list)
+    plt.title('Epsilon')
+    plt.show()
+
+
+def selfplay_models_eval():
+    win_percents = []
+    for x in range(0, 31):
+        dir = './models/selfplay_models/' + str(x) + '/temp_model.ckpt'
+        print("--------dir: ", dir, " -----------" )
+        results = face_off('player_A', dir, 'Drunk', None, 500)
+        s = sum(results.values())
+        pcts = {k: int(10000 * v / s) / 100 for k, v in results.items()}
+        win_percents.append(float(pcts['player_A']))
+        print(" ")
+    print("Average win percentage: ", sum(win_percents)/len(win_percents))
 
 
 
+#eps_tester()
 
+#print("Training!")
+#train_selfplay('player_A','player_B', True, True, num_of_games=2800000, savedir='./models/selfplay_training', restore_path=None)
+selfplay_models_eval()
 
-
-# print("Training!")
-# train('player_A','player_B', True, True, 'Novice', 700000, './models/test_training_c4', './models/test_training_c4/player_A12-31-14:35.ckpt')
-
-#
 # print("face off!")
-# face_off('player_A', './models/selfplay_training/player_A01-05-04:57.ckpt', 'Drunk', None, 1000)
-# print("---------------------------------------------------")
-# face_off('player_A', './models/selfplay_training/player_A01-05-17:24.ckpt', 'Drunk', None, 1000)
-# print("---------------------------------------------------")
-# face_off('player_A', './models/selfplay_training/player_A01-05-04:57.ckpt', 'player_B', './models/selfplay_training/player_A01-05-17:24.ckpt', 1000)
-# print("---------------------------------------------------")
+# print("-----------------------Trained against Drunk player 12hrs----------------------------")
+# face_off('player_A', './models/selfplay_training/player_A01-05-23:41.ckpt', 'Drunk', None, 1000)
+# print("-----------------------Trained selfplay 6 hrs----------------------------")
+# face_off('player_A', './models/selfplay_training/player_A01-28-05:00.ckpt', 'Drunk', None, 1000)
+# print("------------------------Trained selfplay 6 + 1 hrs ---------------------------")
+# face_off('player_A', './models/selfplay_training/player_A01-28-10:07.ckpt', 'Drunk', None, 1000)
+# print("------------------------Trained selfplay 6 + 1 + .5 hrs---------------------------")
+# face_off('player_A', './models/selfplay_training/player_A01-28-10:43.ckpt', 'Drunk', None, 1000)
+# print("------------------------Trained selfplay 6 + 1 + .5 + .5 hrs---------------------------")
+# face_off('player_A', './models/selfplay_training/player_A01-28-11:15.ckpt', 'Drunk', None, 1000)
+# print("------------------------Trained selfplay 6 + 1 + .5 + .5 + 3 hrs---------------------------")
+# face_off('player_A', './models/selfplay_training/player_A01-28-14:52.ckpt', 'Drunk', None, 1000)
+# print("------------------------Trained selfplay 6 + 1 + .5 + .5 + 3 + 1 hrs---------------------------")
+# face_off('player_A', './models/selfplay_training/player_A01-28-16:28.ckpt', 'Drunk', None, 1000)
 
 
 # print("Playing game!")
 # play('Novice', True)
 
-#train selfplay
-train_selfplay('player_A', 'Player_B', True, True, num_of_games=1000000, savedir='./models/selfplay_training', restore_path='./models/selfplay_training/player_A01-05-17:24.ckpt')
+#200k ~= 1hr
+#2800k ~=  14hrs
 
 
-
-'''
-
-Note:
-    Training on drunk for 4mil games
-
-To do:
--* add a tie-checking block in game_status
--* confirm/test that each player gets to go first an equal number of times
--* face_offqnetworks should be merged with faceoffdrunk
--* add an option to reload previous models when training
--* test the play against human function
--* do some testing to make sure the correct outcomes are being recorded 
-    (model should improve as it is trained iteratively)
--* add minimax
-    -* verify minimax by playing against it
-    -* try from scratch
-    -* try from more mature model
-    -* make it possible for minimax to play as main character in face off (to get a baseline of best performance)
--* see if drunk or novice is better for training
-    -* run drunk for 100k - took 2:50 
-    -* run novice for 100k - took 2:34
-    -* do face offs
-    result:drunk is better for initial training because it is closer to the skill level. 
-            However, you could expect novice to be better for later training for the same reason.
--* build connect 4
-    -* initial draft
-    -* run drunk vs drunk face off
-    -* novice face off
-    -* run q player training
-        - you are attempting to adapt dqn to size 42, this will need to be changed to a convnet eventually
-        lines changed: game123, players327
--* train an agent for connect 4 on drunk player
-    -* train same agent on novice player
-     
--* submit agent, see how it ranks
--* add self play
-- add convolution to current NN
-- train with gpu on google colab
-- post online
-'''
