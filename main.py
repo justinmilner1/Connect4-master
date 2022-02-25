@@ -630,7 +630,7 @@ def selfplay_models_eval():
 
 #print("Training!")
 #train_selfplay('player_A','player_B', True, True, num_of_games=2800000, savedir='./models/selfplay_training', restore_path=None)
-selfplay_models_eval()
+#selfplay_models_eval()
 
 # print("face off!")
 # print("-----------------------Trained against Drunk player 12hrs----------------------------")
@@ -647,6 +647,8 @@ selfplay_models_eval()
 # face_off('player_A', './models/selfplay_training/player_A01-28-14:52.ckpt', 'Drunk', None, 1000)
 # print("------------------------Trained selfplay 6 + 1 + .5 + .5 + 3 + 1 hrs---------------------------")
 # face_off('player_A', './models/selfplay_training/player_A01-28-16:28.ckpt', 'Drunk', None, 1000)
+print("------------------------Trained selfplay 6 + 1 + .5 + .5 + 3 + 1 hrs---------------------------")
+face_off('player_A', './models/test_training_c4/temp.pth.tar', 'Drunk', None, 1000)
 
 
 # print("Playing game!")
