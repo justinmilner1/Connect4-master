@@ -653,8 +653,3 @@ face_off('player_A', './models/test_training_c4/temp.pth.tar', 'Drunk', None, 10
 
 # print("Playing game!")
 # play('Novice', True)
-
-#200k ~= 1hr
-#2800k ~=  14hrs
-
-
